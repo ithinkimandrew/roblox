@@ -2278,6 +2278,10 @@ function library.New(self, info, theme)
                         v.Remove()
                     end
 
+                    local children = rawget(list_frame, "children")
+                    for i = #children, 1, -1 do
+                        if rawget(children[i], "__OBJECT_EXIST") == false then table.remove(children, i) end
+                    end
                     table.clear(self.opinst)
 
                     self.scroll = {1, rows}
@@ -2294,6 +2298,7 @@ function library.New(self, info, theme)
                             Parent = list_frame
                         })
 
+                        if library.loaded then list_option.ZIndex = list_frame.ZIndex + 1 end
                         table.insert(self.opinst, list_option)
 
                     end
