@@ -1480,6 +1480,7 @@ function library.New(self, info, theme)
                 local name = info.name or "textbox"
                 local def = info.default or info.def or ""
                 local callback = info.callback or function() end
+                local secret = info.secret == true
                 local flag = info.flag
                 local pointer = tab.name .. section.name .. name
 
@@ -1521,83 +1522,102 @@ function library.New(self, info, theme)
 
                 utility:Image(textbox_gradient, "https://i.imgur.com/j9y4dux.png")
 
+                local editor, editorGui
+
                 function textbox.Update(self)
                     textbox_frame.Size = v2new(section_frame.Size.X - 12, 18)
                     textbox_outline.Size = textbox_frame.Size + v2new(2, 2)
                     textbox_gradient.Size = textbox_frame.Size
 
-                    local max = math.floor(textbox_frame.Size.X/7)-3
+                    local max = math.max(2, math.floor(textbox_frame.Size.X/7)-3)
 
-                    if self.value == "" then
-                        textbox_title.Color = c3rgb(170, 170, 170)
-
-                        local sub = self.name:sub(1, max)
-
-                        textbox_title.Text = sub .. (#self.name > max and "..." or "")
-                    else
-                        textbox_title.Color = c3rgb(255, 255, 255)
-
-                        local sub = self.value:sub(1, max)
-
-                        textbox_title.Text = sub .. (#self.value > max and "..." or "")
-                    end
+                    local display = self.value
+                    if secret then display = string.rep("*", math.min(#display, max)) end
+                    if display == "" and not self.typing then display = self.name end
+                    if self.typing then display = display:sub(1, max-1) .. "|" end
+                    textbox_title.Color = self.value == "" and c3rgb(170, 170, 170) or c3rgb(255, 255, 255)
+                    textbox_title.Text = display:sub(1, max) .. (#display > max and "..." or "")
                 end
+
 
                 function textbox.Get(self)
                     return self.value
                 end
 
                 function textbox.Start(self)
-                    self.typing = true
+                    if self.typing then return end
+                    if window.shit.textbox then window.shit.textbox:Stop() end
+                    if not editor then
+                        editorGui = Instance.new("ScreenGui")
+                        editorGui.Name = "DrawingTextboxInput"
+                        editorGui.ResetOnSpawn = false
+                        editor = Instance.new("TextBox")
+                        editor.Size = UDim2.fromOffset(1, 1)
+                        editor.Position = UDim2.fromOffset(-100, -100)
+                        editor.BackgroundTransparency = 1
+                        editor.TextTransparency = 1
+                        editor.ClearTextOnFocus = false
+                        editor.Parent = editorGui
+                        editorGui.Parent = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+                        utility:Connect(editor:GetPropertyChangedSignal("Text"), function()
+                            if textbox.typing then textbox:Set(editor.Text) end
+                        end)
+                        utility:Connect(editor.FocusLost, function(enterPressed)
+                            if not textbox.typing then return end
+                            textbox.typing = false
+                            if window.shit.textbox == textbox then window.shit.textbox = nil end
+                            textbox:Set(editor.Text)
+                            callback(textbox.value, enterPressed)
+                        end)
+                    end
 
+                    editor.Text = self.value
+                    self.typing = true
                     window.shit.textbox = self
+                    self:Update()
+                    editor:CaptureFocus()
                 end
 
                 function textbox.Stop(self)
-                    self.typing = false
-
-                    window.shit.textbox = nil
+                    if self.typing then editor:ReleaseFocus() end
                 end
 
                 function textbox.Set(self, value)
-                    self.value = value
-
+                    self.value = tostring(value)
+                    if editor and editor.Text ~= self.value then editor.Text = self.value end
                     if self.flag then
-                        library.flags[self.flag] = value
+                        library.flags[self.flag] = self.value
                     end
-
                     self:Update()
                 end
 
                 textbox:Set(textbox.value)
 
-                utility:Connect(uis.InputBegan, function(input)
-                    if input.UserInputType == Enum.UserInputType.MouseButton1 and main_frame.Visible and tab.on then
-                        if not window:FakeRealMouseFuckingImAloneGoingToKillMyselfWithKnife(section) and utility:MouseOverPosition({section_frame.Position + v2new(0, textbox_frame.GetOffset().Y), section_frame.Position + v2new(section_frame.Size.X, textbox_frame.GetOffset().Y + 18)}) then
-                            textbox:Start()
-                        else
-                            textbox:Stop()
-                        end
-                    elseif input.UserInputType == Enum.UserInputType.Keyboard and textbox.typing then
-                        local keycode = input.KeyCode
-
-                        local key_name = uis:GetStringForKeyCode(keycode):lower()
-
-                        if uis:IsKeyDown(Enum.KeyCode.LeftShift) or uis:IsKeyDown(Enum.KeyCode.RightShift) then
-                            key_name = utility:ShiftKey(key_name)
-                        end
-
-                        if keycode == Enum.KeyCode.Return or keycode == Enum.KeyCode.Escape then
-                            textbox:Stop()
-                        elseif keycode.Name ~= "Backspace" then
-                            if key_name ~= "" then
-                                textbox:Set(textbox.value .. key_name)
+                utility:Connect(uis.InputEnded, function(input)
+                    if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+                    if main_frame.Visible and tab.on and not window.fading
+                        and not window:FakeRealMouseFuckingImAloneGoingToKillMyselfWithKnife(section)
+                        and utility:MouseOverDrawing(textbox_frame) then
+                        task.defer(function()
+                            if library.loaded and main_frame.Visible and tab.on and not window.fading then
+                                textbox:Start()
                             end
-                        else
-                            textbox:Set(textbox.value:sub(1, -2))
-                        end
+                        end)
+                    elseif textbox.typing then
+                        textbox:Stop()
                     end
                 end)
+
+                window:Connect({con = "tab", callback = function()
+                    if not tab.on then textbox:Stop() end
+                end})
+                window:Connect({con = "fade", callback = function(visible)
+                    if not visible then textbox:Stop() end
+                end})
+                window:Connect({con = "unload", callback = function()
+                    if editorGui then editorGui:Destroy() end
+                end})
+
 
                 self.instances = utility:Combine(self.instances, {textbox_frame, textbox_outline, textbox_gradient, textbox_title})
 
